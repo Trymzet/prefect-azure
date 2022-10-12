@@ -1,7 +1,7 @@
 """Credential classes used to perform authenticated interactions with Azure"""
 
 import functools
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import SecretStr
 
@@ -24,12 +24,23 @@ try:
 except ModuleNotFoundError:
     pass  # a descriptive error will be raised in get_workspace
 
+try:
+    from azure.identity import ClientSecretCredential
+except ModuleNotFoundError:
+    pass  # a descriptive error will be raised in get_client
+
+try:
+    from azure.keyvault.secrets import SecretClient
+except ModuleNotFoundError:
+    pass  # a descriptive error will be raised in get_client
+
 from prefect.blocks.core import Block
 
 HELP_URLS = {
     "blob_storage": "https://docs.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-python#copy-your-credentials-from-the-azure-portal",  # noqa
     "cosmos_db": "https://docs.microsoft.com/en-us/azure/cosmos-db/sql/create-sql-api-python#update-your-connection-string",  # noqa
     "ml_datastore": "https://github.com/Azure/MachineLearningNotebooks/blob/master/how-to-use-azureml/manage-azureml-service/authentication-in-azureml/authentication-in-azureml.ipynb",  # noqa
+    "keyvault": "https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.clientsecretcredential?view=azure-python",  # noqa
 }
 HELP_FMT = "Please visit {help_url} for retrieving the proper connection string."
 
@@ -67,14 +78,120 @@ def _raise_help_msg(key: str):
     return outer
 
 
+class AzureKeyVaultCredentials(Block):
+    """
+    Block used to manage Aure KeyVault authentication with Azure.
+    Authentication is handled via the `azure-keyvault-secrets` module through
+    a service principal (Azure name for a service account).
+
+    Args:
+        vault_name: The name of the Keyvault to be accessed.
+        tenant_id: The active directory tenant that the service account belongs to.
+        client_id: The service principal ID.
+        client_secret: The service principal password/key.
+
+    Example:
+        Load stored Azure KeyVault credentials:
+        ```python
+        from prefect_azure import AzureKeyVaultCredentials
+        azure_keyvault_credentials_block = AzureKeyVaultCredentials.load("MY_BLOCK_NAME")  # noqa
+        ```
+    """
+
+    _block_type_name = "Azure KeyVault Credentials"
+    _logo_url = "https://images.ctfassets.net/gm98wzqotmnx/6AiQ6HRIft8TspZH7AfyZg/39fd82bdbb186db85560f688746c8cdd/azure.png?h=250"  # noqa  # change this
+
+    vault_name: str
+    tenant_id: str
+    client_id: str
+    client_secret: SecretStr
+
+    @_raise_help_msg("keyvault")
+    def get_client(self) -> "SecretClient":
+        """
+        Get an Azure Key Vault client.
+
+        Returns:
+            SecretClient: An authenticated Azure Key Vault client that can be used
+            to interact with an Azure Key Vault instance.
+        """
+        client_secret = self.client_secret.get_secret_value()
+        credential = ClientSecretCredential(
+            tenant_id=self.tenant_id,
+            client_id=self.client_id,
+            client_secret=client_secret,
+        )
+        vault_url = f"https://{self.vault_name}.vault.azure.net"
+        return SecretClient(vault_url=vault_url, credential=credential)
+
+    def get_secret(self, secret: str) -> str:
+        """
+        Retrieve a secret from an Azure Key Vault instance.
+
+        Args:
+            secret (str): The secret to retrieve.
+
+        Returns:
+            str: The value of the secret.
+        """
+        client = self.get_client()
+        return client.get_secret(secret).value
+
+
+class AzureKeyVaultSecretReference(Block):
+    """
+    Block used for storing references to Azure Key Vault secrets.
+    For this purpose, we store here the relevant Key Vault credentials block,
+    as well as the name of the secret inside that Key Vault instance,
+    which holds the target credentials. This is done so that we only store Key Vault
+    credentials on Prefect, and all the other secrets are fetched from Azure Key Vault.
+
+    Args:
+        credentials (AzureKeyVaultCredentials, optional): The service principal
+            credentials to be used to authenticate to Azure Key Vault
+            and retrieve the `secret` secret.
+        secret (str): The secret in Azure Key Vault containing the credentials.
+    """
+
+    _block_type_name = "Azure KeyVault Secret Reference"
+    _logo_url = "https://images.ctfassets.net/gm98wzqotmnx/6AiQ6HRIft8TspZH7AfyZg/39fd82bdbb186db85560f688746c8cdd/azure.png?h=250"  # noqa  # change this
+
+    credentials: AzureKeyVaultCredentials
+    secret: str
+
+    def get_secret(self) -> str:
+        """
+        Retrieve a secret from an Azure Key Vault instance.
+
+        Returns:
+            str: The value of the secret.
+        """
+        return self.credentials.get_secret(self.secret)
+
+
 class AzureBlobStorageCredentials(Block):
     """
     Block used to manage Blob Storage authentication with Azure.
     Azure authentication is handled via the `azure` module through
-    a connection string.
+    a connection string, or through the `azure-keyvault-secrets` module through
+    `AzureKeyVaultCredentials`.
+
+    If authenticating with a connection string, specify only the `connection_string`.
+    If authenticating with credentials stored in Azure Key Vault, specify both
+    `keyvault_credentials` and `keyvault_key`.
+
+    Note that while keyvault authentication is not yet supported in tasks,
+    as they all use `AzureBlobStorageCredentials.get_blob_client()`,
+    which in turn uses `BlobServiceClient.from_connection_string()`.
 
     Args:
-        connection_string: Includes the authorization information required.
+        connection_string (str, optional): The connection string to be used
+            for authentication.
+        keyvault_credentials (AzureKeyVaultCredentials, optional): The service principal
+            credentials to be used to authenticate to Azure Key Vault
+            and retrieve the `keyvault_key` secret.
+        keyvault_key (str, optional): The key in Azure Key Vault containing Blob Storage
+            credentials. Required when using `keyvault_credentials`.
 
     Example:
         Load stored Azure Blob Storage credentials:
@@ -82,12 +199,44 @@ class AzureBlobStorageCredentials(Block):
         from prefect_azure import AzureBlobStorageCredentials
         azure_credentials_block = AzureBlobStorageCredentials.load("BLOCK_NAME")
         ```
+
+    Create an Azure Key Vault secret with Azure Blob Storage credentials
+    and use it in Prefect:
+    ```python
+    from prefect_azure import AzureBlobStorageCredentials
+
+    # Create a key vault credential that stores the credentials
+    # to an Azure Key Vault.
+    vault_name = "my_keyvault"
+    config = {
+        "vault_name": vault_name,
+        "tenant_id": "TENANT_ID",
+        "client_id": "CLIENT_ID",
+        "client_secret": "CLIENT_SECRET",
+    }
+    keyvault_block = AzureKeyVaultCredentials(**config)
+    keyvault_block.save(vault_name, overwrite=True)
+
+    # Create an ADLS credential using `AzureBlobStorageCredentials`
+    # which will fetch the credentials from Azure Key Vault.
+    azure_keyvault_credentials_block = AzureKeyVaultCredentials.load(vault_name)
+    adls_credentials = AzureBlobStorageCredentials(
+        keyvault_credentials=azure_keyvault_credentials_block,
+        keyvault_key="my_adls_service_principal_secret",
+    )
+    adls_credentials.save("adls-dev")
+
+    # Now we can use them in a flow
+    adls_credentials = AzureBlobStorageCredentials.load("adls-dev")
+    ```
     """
 
     _block_type_name = "Azure Blob Storage Credentials"
     _logo_url = "https://images.ctfassets.net/gm98wzqotmnx/6AiQ6HRIft8TspZH7AfyZg/39fd82bdbb186db85560f688746c8cdd/azure.png?h=250"  # noqa
 
-    connection_string: SecretStr
+    connection_string: Optional[SecretStr]
+    keyvault_credentials: Optional[AzureKeyVaultCredentials]
+    keyvault_key: Optional[str]
 
     @_raise_help_msg("blob_storage")
     def get_client(self) -> "BlobServiceClient":

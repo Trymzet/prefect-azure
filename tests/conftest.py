@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from azure.core.exceptions import ResourceExistsError
 from prefect.testing.utilities import AsyncMock
+from pydantic import SecretStr
 
 
 class AsyncIter:
@@ -140,7 +141,29 @@ class CosmosClientMock(MagicMock):
         return CosmosClientMock(container=container)
 
 
+class SecretClientMock(MagicMock):
+    def get_client(self):
+        return SecretClientMock()
+
+    def get_secret(self, secret):
+        class SecretClassMock:
+            value = "secret_value"
+
+        return SecretClassMock
+
+
 @pytest.fixture
 def cosmos_connection_string(monkeypatch):
     monkeypatch.setattr("prefect_azure.credentials.CosmosClient", CosmosClientMock)
     return "AccountEndpoint=url/;AccountKey=AccountKey==;"
+
+
+@pytest.fixture
+def keyvault_credentials(monkeypatch):
+    monkeypatch.setattr("prefect_azure.credentials.SecretClient", SecretClientMock)
+    return dict(
+        vault_name="vault-name",
+        tenant_id="tenant-id",
+        client_id="client-id",
+        client_secret=SecretStr("client-secret"),
+    )

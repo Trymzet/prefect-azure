@@ -1,12 +1,14 @@
 from unittest.mock import MagicMock
 
 from azure.storage.blob import BlobClient, BlobServiceClient, ContainerClient
-from conftest import CosmosClientMock
+from conftest import CosmosClientMock, SecretClientMock
 from prefect import flow
 
 from prefect_azure.credentials import (
     AzureBlobStorageCredentials,
     AzureCosmosDbCredentials,
+    AzureKeyVaultCredentials,
+    AzureKeyVaultSecretReference,
     AzureMlCredentials,
 )
 
@@ -103,3 +105,35 @@ def test_get_workspace(monkeypatch):
 
     workspace = test_flow()
     assert isinstance(workspace, MagicMock)
+
+
+def test_get_keyvault_client(keyvault_credentials):
+    # This one breaks with `TypeError: cannot pickle '_thread._local' object`
+    # if trying to use inside a flow.
+    client = AzureKeyVaultCredentials(**keyvault_credentials).get_client()
+    assert isinstance(client, SecretClientMock)
+
+
+def test_get_keyvault_secret(keyvault_credentials):
+    @flow
+    def test_flow():
+        secret_value = AzureKeyVaultCredentials(**keyvault_credentials).get_secret(
+            secret="secret"
+        )
+        return secret_value
+
+    secret_value = test_flow()
+    assert secret_value == "secret_value"
+
+
+def test_get_keyvault_secret_by_reference(keyvault_credentials):
+    @flow
+    def test_flow():
+        credentials = AzureKeyVaultCredentials(**keyvault_credentials)
+        secret_value = AzureKeyVaultSecretReference(
+            credentials=credentials, secret="secret"
+        ).get_secret()
+        return secret_value
+
+    secret_value = test_flow()
+    assert secret_value == "secret_value"

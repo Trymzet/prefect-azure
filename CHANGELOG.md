@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- initial Azure Key Vault support: added `AzureKeyVaultCredentials` and `AzureKeyVaultSecretReference` blocks, as well as initial support for passing credentials stored in Azure KeyVault to `AzureBlobStorageCredentials` by specifying `keyvault_credentials` and `keyvault_key` parameters.
+
 ### Changed
 
 ### Deprecated
