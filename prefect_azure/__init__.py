@@ -7,4 +7,4 @@ from .credentials import (  # noqa
     AzureKeyVaultSecretReference,
 )
 
-__version__ = _version.get_versions()["version"]
+__version__ = "0.1.0"

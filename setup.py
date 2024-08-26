@@ -1,13 +1,5 @@
 from setuptools import find_packages, setup
 
-import versioneer
-
-with open("requirements.txt") as install_requires_file:
-    install_requires = install_requires_file.read().strip().split("\n")
-
-with open("requirements-dev.txt") as dev_requires_file:
-    dev_requires = dev_requires_file.read().strip().split("\n")
-
 with open("README.md") as readme_file:
     readme = readme_file.read()
 
@@ -15,11 +7,11 @@ extras_require = {
     "blob_storage": ["azure-storage-blob"],
     "cosmos_db": ["azure-cosmos"],
     "ml_datastore": ["azureml-core"],
+    "key_vault": ["azure-keyvault-secrets>=4.6.0", "azure-identity>=1.11.0"],
 }
 extras_require["all_extras"] = sorted(
     {lib for key in extras_require.values() for lib in key if key != "dev"}
 )
-extras_require["dev"] = dev_requires + extras_require["all_extras"]
 
 setup(
     name="prefect-azure-dyvenia",
@@ -31,11 +23,10 @@ setup(
     url="https://github.com/Trymzet/prefect-azure",
     long_description=readme,
     long_description_content_type="text/markdown",
-    version=versioneer.get_version(),
-    cmdclass=versioneer.get_cmdclass(),
+    version="0.1.0",
     packages=find_packages(exclude=("tests", "docs")),
     python_requires=">=3.7",
-    install_requires=install_requires,
+    install_requires=["prefect"],
     extras_require=extras_require,
     entry_points={
         "prefect.collections": [
