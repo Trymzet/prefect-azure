@@ -22,13 +22,13 @@ extras_require["all_extras"] = sorted(
 extras_require["dev"] = dev_requires + extras_require["all_extras"]
 
 setup(
-    name="prefect-azure",
+    name="prefect-azure-dyvenia",
     description="Prefect tasks and subflows for interacting with Azure",
     license="Apache License 2.0",
     author="Prefect Technologies, Inc.",
     author_email="help@prefect.io",
     keywords="prefect",
-    url="https://github.com/PrefectHQ/prefect-azure",
+    url="https://github.com/Trymzet/prefect-azure",
     long_description=readme,
     long_description_content_type="text/markdown",
     version=versioneer.get_version(),
@@ -42,6 +42,8 @@ setup(
             "AzureBlobStorageCredentials = prefect_azure.credentials",
             "AzureCosmosDbCredentials = prefect_azure.credentials",
             "AzureMlCredentials = prefect_azure.credentials",
+            "AzureKeyVaultCredentials = prefect_azure.credentials",
+            "AzureKeyVaultSecretReference = prefect_azure.credentials",
         ]
     },
     classifiers=[
